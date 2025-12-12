@@ -1,10 +1,22 @@
+'use client';
+
 import * as XLSX from 'xlsx';
-import * as pdfjs from 'pdfjs-dist';
 import { saveAs } from 'file-saver';
 
-// Set up PDF.js worker
-if (typeof window !== 'undefined') {
-    pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// pdfjs will be imported dynamically to avoid SSR issues
+let pdfjs: typeof import('pdfjs-dist') | null = null;
+
+// Initialize pdfjs only on client side
+async function getPdfJs() {
+    if (typeof window === 'undefined') {
+        throw new Error('PDF.js can only be used in browser');
+    }
+
+    if (!pdfjs) {
+        pdfjs = await import('pdfjs-dist');
+        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+    }
+    return pdfjs;
 }
 
 interface ConversionResult {
@@ -24,8 +36,9 @@ interface TableData {
  * Extract text content from PDF and try to identify table structures
  */
 async function extractTablesFromPdf(file: File): Promise<{ tables: TableData[]; pageCount: number }> {
+    const pdfjsLib = await getPdfJs();
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
     const tables: TableData[] = [];
 
