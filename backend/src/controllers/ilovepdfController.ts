@@ -3,20 +3,24 @@ import ILovePDFApi from '@ilovepdf/ilovepdf-nodejs';
 import ILovePDFFile from '@ilovepdf/ilovepdf-nodejs/ILovePDFFile';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 // Store for processed PDFs
 const processedPdfs: Map<string, { buffer: Buffer; filename: string; savedAt: Date }> = new Map();
 
-// Uploads directory
-const UPLOADS_DIR = path.join(__dirname, '../../uploads');
-const OUTPUT_DIR = path.join(__dirname, '../../output');
+// Use temp directory for Render compatibility
+const TEMP_DIR = os.tmpdir();
+const UPLOADS_DIR = path.join(TEMP_DIR, 'pdfhustle-uploads');
+const OUTPUT_DIR = path.join(TEMP_DIR, 'pdfhustle-output');
 
 // Ensure directories exist
-[UPLOADS_DIR, OUTPUT_DIR].forEach(dir => {
+const ensureDir = (dir: string) => {
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
-});
+};
+ensureDir(UPLOADS_DIR);
+ensureDir(OUTPUT_DIR);
 
 /**
  * Get ILovePDF instance
