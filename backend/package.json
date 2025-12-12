@@ -23,6 +23,7 @@
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
+    "@ilovepdf/ilovepdf-nodejs": "^0.3.1",
     "@prisma/adapter-pg": "^7.1.0",
     "@prisma/client": "^7.1.0",
     "@types/bcryptjs": "^2.4.6",

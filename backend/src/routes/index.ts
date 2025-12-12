@@ -3,6 +3,7 @@ import authRoutes from './authRoutes';
 import userRoutes from './userRoutes';
 import stripeRoutes from './stripeRoutes';
 import zohoRoutes from './zohoRoutes';
+import ilovepdfRoutes from './ilovepdfRoutes';
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use('/auth', authRoutes);
 router.use('/user', userRoutes);
 router.use('/stripe', stripeRoutes);
 router.use('/zoho', zohoRoutes);
+router.use('/ilovepdf', ilovepdfRoutes);
 
 export default router;
