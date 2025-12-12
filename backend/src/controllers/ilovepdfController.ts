@@ -5,41 +5,19 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-// Store for processed PDFs
+// Store for processed PDFs (in-memory)
 const processedPdfs: Map<string, { buffer: Buffer; filename: string; savedAt: Date }> = new Map();
 
-// Use temp directory for Render compatibility
-const TEMP_DIR = os.tmpdir();
-const UPLOADS_DIR = path.join(TEMP_DIR, 'pdfhustle-uploads');
-const OUTPUT_DIR = path.join(TEMP_DIR, 'pdfhustle-output');
+// Use temp directory for uploads only
+const UPLOADS_DIR = path.join(os.tmpdir(), 'pdfhustle-uploads');
 
-console.log('=== ILovePDF Controller Loaded ===');
-console.log('TEMP_DIR:', TEMP_DIR);
-console.log('UPLOADS_DIR:', UPLOADS_DIR);
-console.log('OUTPUT_DIR:', OUTPUT_DIR);
-
-// Robust directory creation
-const ensureDir = (dir: string): void => {
-    try {
-        if (!fs.existsSync(dir)) {
-            console.log('Creating directory:', dir);
-            fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
-            console.log('Directory created successfully:', dir);
-        } else {
-            console.log('Directory already exists:', dir);
-        }
-    } catch (error) {
-        console.error('Failed to create directory:', dir, error);
-        throw error;
-    }
-};
-
-// Create directories on module load
+// Ensure uploads directory exists
 try {
-    ensureDir(UPLOADS_DIR);
-    ensureDir(OUTPUT_DIR);
+    if (!fs.existsSync(UPLOADS_DIR)) {
+        fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
 } catch (e) {
-    console.error('Failed to create initial directories:', e);
+    console.error('Failed to create uploads directory:', e);
 }
 
 /**
@@ -57,116 +35,55 @@ function getILovePDFInstance(): any {
 }
 
 /**
- * Edit PDF - Add text to PDF
+ * Stream to Buffer helper
  */
-export const editPdf = async (req: Request, res: Response): Promise<void> => {
-    try {
-        const file = req.file;
-        const { elements } = req.body; // Array of elements to add
-
-        if (!file) {
-            res.status(400).json({ success: false, error: 'No PDF file provided' });
-            return;
-        }
-
-        console.log('Processing PDF with ILovePDF:', file.originalname);
-
-        const instance = getILovePDFInstance();
-        const task = instance.newTask('editpdf');
-
-        await task.start();
-
-        // Add the PDF file
-        const pdfFile = new ILovePDFFile(file.path);
-        await task.addFile(pdfFile);
-
-        // Parse elements if provided
-        let parsedElements = [];
-        if (elements) {
-            try {
-                parsedElements = typeof elements === 'string' ? JSON.parse(elements) : elements;
-            } catch (e) {
-                console.log('No valid elements provided, processing without modifications');
-            }
-        }
-
-        // Process the PDF with elements
-        await task.process({ elements: parsedElements });
-
-        // Download the processed file
-        const outputPath = path.join(OUTPUT_DIR, `edited_${Date.now()}.pdf`);
-        await task.download(outputPath);
-
-        // Read the processed file
-        const processedBuffer = fs.readFileSync(outputPath);
-        const sessionId = `ilovepdf_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-
-        // Store for later download
-        processedPdfs.set(sessionId, {
-            buffer: processedBuffer,
-            filename: `edited_${file.originalname}`,
-            savedAt: new Date(),
-        });
-
-        // Cleanup
-        fs.unlinkSync(file.path);
-        fs.unlinkSync(outputPath);
-
-        res.json({
-            success: true,
-            sessionId,
-            message: 'PDF processed successfully',
-        });
-
-    } catch (error: any) {
-        console.error('ILovePDF edit error:', error);
-
-        if (req.file && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
-        }
-
-        res.status(500).json({
-            success: false,
-            error: 'Failed to process PDF',
-            details: error.message || 'Unknown error',
-        });
-    }
-};
+async function streamToBuffer(stream: any): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+        stream.on('end', () => resolve(Buffer.concat(chunks)));
+        stream.on('error', reject);
+    });
+}
 
 /**
- * Compress PDF
+ * Compress PDF - Memory-based (no file download needed)
  */
 export const compressPdf = async (req: Request, res: Response): Promise<void> => {
     try {
         const file = req.file;
-        const { compressionLevel } = req.body; // 'extreme', 'recommended', 'low'
+        const { compressionLevel } = req.body;
 
         if (!file) {
             res.status(400).json({ success: false, error: 'No PDF file provided' });
             return;
         }
 
-        console.log('Compressing PDF with ILovePDF:', file.originalname);
+        console.log('=== Compressing PDF with ILovePDF ===');
+        console.log('File:', file.originalname);
+        console.log('Compression level:', compressionLevel || 'recommended');
 
         const instance = getILovePDFInstance();
         const task = instance.newTask('compress');
 
         await task.start();
+        console.log('Task started');
 
         const pdfFile = new ILovePDFFile(file.path);
         await task.addFile(pdfFile);
+        console.log('File added to task');
 
         await task.process({
             compression_level: compressionLevel || 'recommended'
         });
+        console.log('Processing complete');
 
-        // Ensure output directory exists before download
-        ensureDir(OUTPUT_DIR);
-        const outputPath = path.join(OUTPUT_DIR, `compressed_${Date.now()}.pdf`);
-        console.log('Downloading to:', outputPath);
-        await task.download(outputPath);
+        // Download as stream to memory - NO FILE NEEDED!
+        console.log('Downloading as stream...');
+        const stream = await task.downloadAsStream();
+        const processedBuffer = await streamToBuffer(stream);
+        console.log('Downloaded to buffer, size:', processedBuffer.length);
 
-        const processedBuffer = fs.readFileSync(outputPath);
         const sessionId = `compress_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
         processedPdfs.set(sessionId, {
@@ -175,12 +92,19 @@ export const compressPdf = async (req: Request, res: Response): Promise<void> =>
             savedAt: new Date(),
         });
 
-        fs.unlinkSync(file.path);
-        fs.unlinkSync(outputPath);
+        // Cleanup uploaded file
+        try {
+            fs.unlinkSync(file.path);
+        } catch (e) {
+            console.log('Could not delete temp file:', e);
+        }
 
         const originalSize = file.size;
         const compressedSize = processedBuffer.length;
         const reduction = Math.round((1 - compressedSize / originalSize) * 100);
+
+        console.log('=== Compression successful ===');
+        console.log('Original:', originalSize, 'Compressed:', compressedSize, 'Reduction:', reduction + '%');
 
         res.json({
             success: true,
@@ -194,8 +118,8 @@ export const compressPdf = async (req: Request, res: Response): Promise<void> =>
     } catch (error: any) {
         console.error('ILovePDF compress error:', error);
 
-        if (req.file && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
+        if (req.file) {
+            try { fs.unlinkSync(req.file.path); } catch (e) { }
         }
 
         res.status(500).json({
@@ -207,7 +131,73 @@ export const compressPdf = async (req: Request, res: Response): Promise<void> =>
 };
 
 /**
- * Merge PDFs
+ * Edit PDF - Memory-based
+ */
+export const editPdf = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const file = req.file;
+        const { elements } = req.body;
+
+        if (!file) {
+            res.status(400).json({ success: false, error: 'No PDF file provided' });
+            return;
+        }
+
+        console.log('Processing PDF with ILovePDF:', file.originalname);
+
+        const instance = getILovePDFInstance();
+        const task = instance.newTask('editpdf');
+
+        await task.start();
+
+        const pdfFile = new ILovePDFFile(file.path);
+        await task.addFile(pdfFile);
+
+        let parsedElements = [];
+        if (elements) {
+            try {
+                parsedElements = typeof elements === 'string' ? JSON.parse(elements) : elements;
+            } catch (e) {
+                console.log('No valid elements provided');
+            }
+        }
+
+        await task.process({ elements: parsedElements });
+
+        // Download as stream
+        const stream = await task.downloadAsStream();
+        const processedBuffer = await streamToBuffer(stream);
+
+        const sessionId = `edit_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+        processedPdfs.set(sessionId, {
+            buffer: processedBuffer,
+            filename: `edited_${file.originalname}`,
+            savedAt: new Date(),
+        });
+
+        try { fs.unlinkSync(file.path); } catch (e) { }
+
+        res.json({
+            success: true,
+            sessionId,
+            message: 'PDF processed successfully',
+        });
+
+    } catch (error: any) {
+        console.error('ILovePDF edit error:', error);
+        if (req.file) { try { fs.unlinkSync(req.file.path); } catch (e) { } }
+
+        res.status(500).json({
+            success: false,
+            error: 'Failed to process PDF',
+            details: error.message || 'Unknown error',
+        });
+    }
+};
+
+/**
+ * Merge PDFs - Memory-based
  */
 export const mergePdf = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -225,7 +215,6 @@ export const mergePdf = async (req: Request, res: Response): Promise<void> => {
 
         await task.start();
 
-        // Add all files
         for (const file of files) {
             const pdfFile = new ILovePDFFile(file.path);
             await task.addFile(pdfFile);
@@ -233,13 +222,10 @@ export const mergePdf = async (req: Request, res: Response): Promise<void> => {
 
         await task.process();
 
-        // Ensure output directory exists before download
-        ensureDir(OUTPUT_DIR);
-        const outputPath = path.join(OUTPUT_DIR, `merged_${Date.now()}.pdf`);
-        console.log('Downloading to:', outputPath);
-        await task.download(outputPath);
+        // Download as stream
+        const stream = await task.downloadAsStream();
+        const processedBuffer = await streamToBuffer(stream);
 
-        const processedBuffer = fs.readFileSync(outputPath);
         const sessionId = `merge_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
         processedPdfs.set(sessionId, {
@@ -248,9 +234,7 @@ export const mergePdf = async (req: Request, res: Response): Promise<void> => {
             savedAt: new Date(),
         });
 
-        // Cleanup
-        files.forEach(file => fs.unlinkSync(file.path));
-        fs.unlinkSync(outputPath);
+        files.forEach(file => { try { fs.unlinkSync(file.path); } catch (e) { } });
 
         res.json({
             success: true,
@@ -260,12 +244,9 @@ export const mergePdf = async (req: Request, res: Response): Promise<void> => {
 
     } catch (error: any) {
         console.error('ILovePDF merge error:', error);
-
         const files = req.files as Express.Multer.File[];
         if (files) {
-            files.forEach(file => {
-                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-            });
+            files.forEach(file => { try { fs.unlinkSync(file.path); } catch (e) { } });
         }
 
         res.status(500).json({
@@ -277,7 +258,7 @@ export const mergePdf = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * Download processed PDF
+ * Download processed PDF from memory
  */
 export const downloadProcessedPdf = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -299,7 +280,7 @@ export const downloadProcessedPdf = async (req: Request, res: Response): Promise
         res.setHeader('Content-Disposition', `attachment; filename="${pdf.filename}"`);
         res.send(pdf.buffer);
 
-        // Delete after download
+        // Delete from memory after download
         processedPdfs.delete(sessionId);
 
     } catch (error: any) {
