@@ -1,10 +1,22 @@
+'use client';
+
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import * as pdfjs from 'pdfjs-dist';
 import { saveAs } from 'file-saver';
 
-// Set up PDF.js worker - use local worker file for v5.x compatibility
-if (typeof window !== 'undefined') {
-    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+// pdfjs will be imported dynamically to avoid SSR issues
+let pdfjs: typeof import('pdfjs-dist') | null = null;
+
+// Initialize pdfjs only on client side
+async function getPdfJs() {
+    if (typeof window === 'undefined') {
+        throw new Error('PDF.js can only be used in browser');
+    }
+
+    if (!pdfjs) {
+        pdfjs = await import('pdfjs-dist');
+        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+    }
+    return pdfjs;
 }
 
 export interface TextAnnotation {
@@ -27,8 +39,9 @@ export interface PageInfo {
  * Load PDF and get page information
  */
 export async function loadPdfInfo(file: File): Promise<{ pageCount: number; pages: PageInfo[] }> {
+    const pdfjsLib = await getPdfJs();
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
     const pages: PageInfo[] = [];
 
@@ -54,8 +67,9 @@ export async function renderPdfPage(
     canvas: HTMLCanvasElement,
     scale: number = 1.5
 ): Promise<{ width: number; height: number }> {
+    const pdfjsLib = await getPdfJs();
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const page = await pdf.getPage(pageNumber);
 
     const viewport = page.getViewport({ scale });
