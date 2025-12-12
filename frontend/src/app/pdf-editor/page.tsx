@@ -12,8 +12,14 @@ import {
     generateId,
     PageInfo,
 } from '@/lib/pdfEditor';
+import {
+    compressPdf,
+    downloadProcessedPdf,
+    ILovePDFResponse,
+} from '@/lib/ilovepdfService';
 
 type Tool = 'select' | 'text';
+type EditorMode = 'edit' | 'compress';
 
 export default function PdfEditorPage() {
     const [file, setFile] = useState<File | null>(null);
@@ -29,20 +35,25 @@ export default function PdfEditorPage() {
     const [textColor, setTextColor] = useState('#000000');
     const [fontSize, setFontSize] = useState(16);
 
+    // Mode and compression state
+    const [editorMode, setEditorMode] = useState<EditorMode>('edit');
+    const [compressionLevel, setCompressionLevel] = useState<'extreme' | 'recommended' | 'low'>('recommended');
+    const [compressionResult, setCompressionResult] = useState<ILovePDFResponse | null>(null);
+
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (file) {
+        if (file && editorMode === 'edit') {
             loadPdf();
         }
-    }, [file]);
+    }, [file, editorMode]);
 
     useEffect(() => {
-        if (file && canvasRef.current) {
+        if (file && canvasRef.current && editorMode === 'edit') {
             renderPage();
         }
-    }, [file, currentPage, scale]);
+    }, [file, currentPage, scale, editorMode]);
 
     const loadPdf = async () => {
         if (!file) return;
@@ -77,6 +88,7 @@ export default function PdfEditorPage() {
             setFile(selectedFile);
             setAnnotations([]);
             setSelectedAnnotation(null);
+            setCompressionResult(null);
         }
     };
 
@@ -119,10 +131,28 @@ export default function PdfEditorPage() {
 
         setIsProcessing(true);
         try {
-            const editedPdf = await savePdfWithAnnotations(file, annotations);
-            downloadPdf(editedPdf, `edited_${file.name}`);
+            if (editorMode === 'compress' && compressionResult?.sessionId) {
+                await downloadProcessedPdf(compressionResult.sessionId, `compressed_${file.name}`);
+            } else {
+                const editedPdf = await savePdfWithAnnotations(file, annotations);
+                downloadPdf(editedPdf, `edited_${file.name}`);
+            }
         } catch (error) {
             console.error('Error saving PDF:', error);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleCompress = async () => {
+        if (!file) return;
+
+        setIsProcessing(true);
+        try {
+            const result = await compressPdf(file, compressionLevel);
+            setCompressionResult(result);
+        } catch (error) {
+            console.error('Error compressing PDF:', error);
         } finally {
             setIsProcessing(false);
         }
@@ -134,9 +164,16 @@ export default function PdfEditorPage() {
         setSelectedAnnotation(null);
         setCurrentPage(1);
         setTotalPages(0);
+        setCompressionResult(null);
     };
 
     const currentPageAnnotations = annotations.filter(ann => ann.pageNumber === currentPage);
+
+    const formatFileSize = (bytes: number) => {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    };
 
     return (
         <div className="pt-24 pb-16 min-h-screen">
@@ -144,14 +181,123 @@ export default function PdfEditorPage() {
                 <div className="text-center mb-8">
                     <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">PDF Editor</h1>
                     <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-                        Add text, annotations and edit your PDFs directly in your browser.
+                        Edit, annotate, and compress your PDFs directly in your browser.
                     </p>
                 </div>
 
                 <div className="max-w-6xl mx-auto">
                     {!file ? (
                         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-2xl mx-auto">
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-3">Choose Action</label>
+                                <div className="flex gap-4">
+                                    <button
+                                        onClick={() => setEditorMode('edit')}
+                                        className={`flex-1 p-4 rounded-xl border-2 transition-all ${editorMode === 'edit' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300'}`}
+                                    >
+                                        <div className="text-left">
+                                            <div className="font-semibold text-gray-900 flex items-center gap-2">
+                                                ✏️ Edit PDF
+                                            </div>
+                                            <div className="text-sm text-gray-500 mt-1">Add text annotations</div>
+                                        </div>
+                                    </button>
+                                    <button
+                                        onClick={() => setEditorMode('compress')}
+                                        className={`flex-1 p-4 rounded-xl border-2 transition-all ${editorMode === 'compress' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300'}`}
+                                    >
+                                        <div className="text-left">
+                                            <div className="font-semibold text-gray-900 flex items-center gap-2">
+                                                📦 Compress PDF
+                                                <span className="px-2 py-0.5 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs rounded-full">ILovePDF</span>
+                                            </div>
+                                            <div className="text-sm text-gray-500 mt-1">Reduce file size</div>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
                             <FileDropzone onFilesSelected={handleFileSelect} accept=".pdf" title="Drop your PDF here" subtitle="or click to browse" />
+                        </div>
+                    ) : editorMode === 'compress' ? (
+                        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-2xl mx-auto">
+                            <div className="text-center mb-6">
+                                <div className="w-16 h-16 mx-auto mb-4 bg-rose-100 rounded-full flex items-center justify-center">
+                                    <span className="text-3xl">📦</span>
+                                </div>
+                                <h2 className="text-xl font-bold text-gray-900">Compress PDF</h2>
+                                <p className="text-gray-600 mt-2">{file.name}</p>
+                                <p className="text-sm text-gray-500">Original size: {formatFileSize(file.size)}</p>
+                            </div>
+
+                            {!compressionResult ? (
+                                <>
+                                    <div className="mb-6">
+                                        <label className="block text-sm font-medium text-gray-700 mb-3">Compression Level</label>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            {(['low', 'recommended', 'extreme'] as const).map(level => (
+                                                <button
+                                                    key={level}
+                                                    onClick={() => setCompressionLevel(level)}
+                                                    className={`p-3 rounded-lg border-2 text-center transition-all ${compressionLevel === level ? 'border-rose-500 bg-rose-50' : 'border-gray-200 hover:border-rose-300'}`}
+                                                >
+                                                    <div className="font-medium capitalize">{level}</div>
+                                                    <div className="text-xs text-gray-500 mt-1">
+                                                        {level === 'low' && 'Best quality'}
+                                                        {level === 'recommended' && 'Balanced'}
+                                                        {level === 'extreme' && 'Smallest size'}
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <Button variant="outline" onClick={handleReset} className="flex-1">Cancel</Button>
+                                        <Button variant="primary" onClick={handleCompress} loading={isProcessing} className="flex-1">
+                                            {isProcessing ? 'Compressing...' : 'Compress PDF'}
+                                        </Button>
+                                    </div>
+                                </>
+                            ) : compressionResult.success ? (
+                                <div className="text-center">
+                                    <div className="w-20 h-20 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                                        <span className="text-4xl">✅</span>
+                                    </div>
+                                    <h3 className="text-lg font-bold text-green-600 mb-2">Compression Complete!</h3>
+                                    <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                                        <div className="grid grid-cols-2 gap-4 text-sm">
+                                            <div>
+                                                <span className="text-gray-500">Original:</span>
+                                                <div className="font-semibold">{formatFileSize(compressionResult.originalSize || 0)}</div>
+                                            </div>
+                                            <div>
+                                                <span className="text-gray-500">Compressed:</span>
+                                                <div className="font-semibold text-green-600">{formatFileSize(compressionResult.compressedSize || 0)}</div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 text-center">
+                                            <span className="inline-block px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+                                                {compressionResult.reduction} smaller
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <Button variant="outline" onClick={handleReset} className="flex-1">New File</Button>
+                                        <Button variant="primary" onClick={handleDownload} className="flex-1">Download</Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center">
+                                    <div className="w-20 h-20 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                                        <span className="text-4xl">❌</span>
+                                    </div>
+                                    <h3 className="text-lg font-bold text-red-600 mb-2">Compression Failed</h3>
+                                    <p className="text-gray-600 mb-4">{compressionResult.error}</p>
+                                    <div className="flex gap-3">
+                                        <Button variant="outline" onClick={handleReset} className="flex-1">Try Again</Button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
@@ -226,7 +372,7 @@ export default function PdfEditorPage() {
                         </div>
                     )}
 
-                    {file && (
+                    {file && editorMode === 'edit' && (
                         <div className="mt-8 p-6 bg-indigo-50 rounded-xl">
                             <h3 className="font-semibold text-indigo-900 mb-3">How to Edit:</h3>
                             <ol className="list-decimal list-inside space-y-2 text-indigo-800 text-sm">
