@@ -140,7 +140,10 @@ export const compressPdf = async (req: Request, res: Response): Promise<void> =>
             compression_level: compressionLevel || 'recommended'
         });
 
+        // Ensure output directory exists before download
+        ensureDir(OUTPUT_DIR);
         const outputPath = path.join(OUTPUT_DIR, `compressed_${Date.now()}.pdf`);
+        console.log('Downloading to:', outputPath);
         await task.download(outputPath);
 
         const processedBuffer = fs.readFileSync(outputPath);
@@ -210,7 +213,10 @@ export const mergePdf = async (req: Request, res: Response): Promise<void> => {
 
         await task.process();
 
+        // Ensure output directory exists before download
+        ensureDir(OUTPUT_DIR);
         const outputPath = path.join(OUTPUT_DIR, `merged_${Date.now()}.pdf`);
+        console.log('Downloading to:', outputPath);
         await task.download(outputPath);
 
         const processedBuffer = fs.readFileSync(outputPath);
