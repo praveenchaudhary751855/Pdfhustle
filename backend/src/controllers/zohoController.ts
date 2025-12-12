@@ -86,7 +86,7 @@ export const createPdfSession = async (req: Request, res: Response): Promise<voi
 
         // Call Zoho PDF Editor API
         const response = await axios.post(
-            `${zohoDomain}/pdfeditor/officeapi/v1/pdf`,
+            `${zohoDomain}/api/v1/pdfeditor`,
             formData,
             {
                 headers: {
