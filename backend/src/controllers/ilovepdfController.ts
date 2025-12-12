@@ -21,7 +21,7 @@ const OUTPUT_DIR = path.join(__dirname, '../../output');
 /**
  * Get ILovePDF instance
  */
-function getILovePDFInstance(): ILovePDFApi {
+function getILovePDFInstance(): any {
     const publicKey = process.env.ILOVEPDF_PUBLIC_KEY;
     const secretKey = process.env.ILOVEPDF_SECRET_KEY;
 
