@@ -1,0 +1,72 @@
+// Prisma Schema for pdfhustle
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// User model
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  password           String?   // Null for OAuth users
+  name               String?
+  image              String?
+  plan               Plan      @default(FREE)
+  stripeCustomerId   String?   @unique
+  conversionsToday   Int       @default(0)
+  lastConversionDate DateTime?
+  emailVerified      Boolean   @default(false)
+  
+  // Relations
+  refreshTokens      RefreshToken[]
+  conversions        Conversion[]
+  
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+// Subscription plans
+enum Plan {
+  FREE    // 5 conversions/day
+  PRO     // Unlimited conversions
+}
+
+// Refresh tokens for JWT auth
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// Track conversions for usage limits
+model Conversion {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      ConversionType
+  fileName  String
+  fileSize  Int      // in bytes
+  status    ConversionStatus @default(COMPLETED)
+  createdAt DateTime @default(now())
+}
+
+enum ConversionType {
+  PDF_EDIT
+  IMAGE_TO_PDF
+  PDF_TO_WORD
+  PDF_TO_EXCEL
+}
+
+enum ConversionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}

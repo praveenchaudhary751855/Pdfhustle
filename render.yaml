@@ -1,0 +1,24 @@
+# Render Blueprint for pdfhustle Backend
+# This file enables "Deploy to Render" button and Infrastructure as Code
+
+services:
+  - type: web
+    name: pdfhustle-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: FRONTEND_URL
+        sync: false  # Set this manually after frontend is deployed
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ZOHO_API_KEY
+        sync: false  # Optional: Set if using Zoho PDF Editor
+      - key: ZOHO_OFFICE_DOMAIN
+        value: https://api.office-integrator.in
+    healthCheckPath: /api/health
