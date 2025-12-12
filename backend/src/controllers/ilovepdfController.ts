@@ -13,14 +13,34 @@ const TEMP_DIR = os.tmpdir();
 const UPLOADS_DIR = path.join(TEMP_DIR, 'pdfhustle-uploads');
 const OUTPUT_DIR = path.join(TEMP_DIR, 'pdfhustle-output');
 
-// Ensure directories exist
-const ensureDir = (dir: string) => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+console.log('=== ILovePDF Controller Loaded ===');
+console.log('TEMP_DIR:', TEMP_DIR);
+console.log('UPLOADS_DIR:', UPLOADS_DIR);
+console.log('OUTPUT_DIR:', OUTPUT_DIR);
+
+// Robust directory creation
+const ensureDir = (dir: string): void => {
+    try {
+        if (!fs.existsSync(dir)) {
+            console.log('Creating directory:', dir);
+            fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+            console.log('Directory created successfully:', dir);
+        } else {
+            console.log('Directory already exists:', dir);
+        }
+    } catch (error) {
+        console.error('Failed to create directory:', dir, error);
+        throw error;
     }
 };
-ensureDir(UPLOADS_DIR);
-ensureDir(OUTPUT_DIR);
+
+// Create directories on module load
+try {
+    ensureDir(UPLOADS_DIR);
+    ensureDir(OUTPUT_DIR);
+} catch (e) {
+    console.error('Failed to create initial directories:', e);
+}
 
 /**
  * Get ILovePDF instance
